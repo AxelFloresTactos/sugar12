@@ -1,0 +1,224 @@
+<?php
+
+/*
+ * This file is part of the Symfony package.
+ *
+ * (c) Fabien Potencier <fabien@symfony.com>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
+namespace Symfony\Component\Ldap\Adapter\ExtLdap;
+
+use Symfony\Component\Ldap\Adapter\AbstractConnection;
+use Symfony\Component\Ldap\Exception\AlreadyExistsException;
+use Symfony\Component\Ldap\Exception\ConnectionException;
+use Symfony\Component\Ldap\Exception\ConnectionTimeoutException;
+use Symfony\Component\Ldap\Exception\InvalidCredentialsException;
+use Symfony\Component\Ldap\Exception\LdapException;
+use Symfony\Component\OptionsResolver\Options;
+use Symfony\Component\OptionsResolver\OptionsResolver;
+
+/**
+ * @author Charles Sarrazin <charles@sarraz.in>
+ */
+class Connection extends AbstractConnection
+{
+    private const LDAP_INVALID_CREDENTIALS = 0x31;
+    private const LDAP_TIMEOUT = 0x55;
+    private const LDAP_ALREADY_EXISTS = 0x44;
+
+    /** @var bool */
+    private $bound = false;
+
+    /** @var resource */
+    private $connection;
+
+    /**
+     * @return array
+     */
+    public function __sleep()
+    {
+        throw new \BadMethodCallException('Cannot serialize '.__CLASS__);
+    }
+
+    public function __wakeup()
+    {
+        throw new \BadMethodCallException('Cannot unserialize '.__CLASS__);
+    }
+
+    public function __destruct()
+    {
+        $this->disconnect();
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function isBound()
+    {
+        return $this->bound;
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * @param string $password WARNING: When the LDAP server allows unauthenticated binds, a blank $password will always be valid
+     */
+    public function bind($dn = null, $password = null)
+    {
+        
+        // if (!$this->connection) {
+        //     $this->connect();
+        // }
+        // 
+        $hostConnect=$this->config['connection_string'];
+        if(!empty($dn)){
+          //$ldapconn = ldap_connect($hostConnect)  or die("Could not connect to LDAP server.");
+          $this->connect();
+          error_log('connectLDAP');
+          error_log('$this->ldapconn'.$ldapconn);
+          error_log('$this->hostConnect'.$hostConnect);
+          $dn = $dn.'@unifin.com.mx';
+          error_log('$this->dn'.$dn);
+          error_log('$this->password'.$password);
+        }
+      
+        
+        if (!ldap_bind($this->connection, $dn, $password)) {
+            error_log('bind Error');
+            $error = ldap_error($this->connection);
+            switch (ldap_errno($this->connection)) {
+                case self::LDAP_INVALID_CREDENTIALS:
+                    throw new InvalidCredentialsException($error);
+                case self::LDAP_TIMEOUT:
+                    throw new ConnectionTimeoutException($error);
+                case self::LDAP_ALREADY_EXISTS:
+                    throw new AlreadyExistsException($error);
+            }
+            throw new ConnectionException($error);
+        }else{
+          error_log('bind OK');
+        }
+        
+        /*
+        if ($ldapconn && !empty($dn))
+        {
+            $ldapbind = ldap_bind($ldapconn, $dn, $password);
+            if ($ldapbind) 
+            {
+                echo "LDAP bind successful...";
+            }
+            else 
+            {
+                echo "LDAP bind failed...";
+                $error = ldap_error($this->connection);
+                switch (ldap_errno($this->connection)) {
+                    case self::LDAP_INVALID_CREDENTIALS:
+                        throw new InvalidCredentialsException($error);
+                    case self::LDAP_TIMEOUT:
+                        throw new ConnectionTimeoutException($error);
+                    case self::LDAP_ALREADY_EXISTS:
+                        throw new AlreadyExistsException($error);
+                }
+                throw new ConnectionException($error);
+            }
+            $result = ldap_search($ldapconn, "OU=Sistemas,OU=UNIFIN ESPECIAL,DC=unifin,DC=com,DC=mx", "(userPrincipalName=$dn)", array("sAMAccountName"));
+            $data = ldap_get_entries($ldapconn, $result);
+            error_log(print_r($data,true));
+        }*/
+      
+
+        $this->bound = true;
+    }
+
+    /**
+     * Returns a link resource.
+     *
+     * @return resource
+     *
+     * @internal
+     */
+    public function getResource()
+    {
+        return $this->connection;
+    }
+
+    public function setOption($name, $value)
+    {
+        if (!@ldap_set_option($this->connection, ConnectionOptions::getOption($name), $value)) {
+            throw new LdapException(sprintf('Could not set value "%s" for option "%s".', $value, $name));
+        }
+    }
+
+    public function getOption($name)
+    {
+        if (!@ldap_get_option($this->connection, ConnectionOptions::getOption($name), $ret)) {
+            throw new LdapException(sprintf('Could not retrieve value for option "%s".', $name));
+        }
+
+        return $ret;
+    }
+
+    protected function configureOptions(OptionsResolver $resolver)
+    {
+        parent::configureOptions($resolver);
+
+        $resolver->setDefault('debug', false);
+        $resolver->setAllowedTypes('debug', 'bool');
+        $resolver->setDefault('referrals', false);
+        $resolver->setAllowedTypes('referrals', 'bool');
+        $resolver->setDefault('options', function (OptionsResolver $options, Options $parent) {
+            $options->setDefined(array_map('strtolower', array_keys((new \ReflectionClass(ConnectionOptions::class))->getConstants())));
+
+            if (true === $parent['debug']) {
+                $options->setDefault('debug_level', 7);
+            }
+
+            if (!isset($parent['network_timeout'])) {
+                $options->setDefault('network_timeout', ini_get('default_socket_timeout'));
+            }
+
+            $options->setDefaults([
+                'protocol_version' => $parent['version'],
+                'referrals' => $parent['referrals'],
+            ]);
+        });
+    }
+
+    private function connect()
+    {
+        if ($this->connection) {
+            //return;
+        }
+
+        $this->connection = ldap_connect($this->config['connection_string']);
+        error_log('this->config[connection_string]: '.$this->config['connection_string']);
+        error_log('this->connection: '.$this->connection);
+
+        foreach ($this->config['options'] as $name => $value) {
+            $this->setOption($name, $value);
+        }
+
+        if (false === $this->connection) {
+            throw new LdapException('Could not connect to Ldap server: '.ldap_error($this->connection));
+            error_log('Could not connect to Ldap server');
+        }
+
+        if ('tls' === $this->config['encryption'] && false === @ldap_start_tls($this->connection)) {
+            throw new LdapException('Could not initiate TLS connection: '.ldap_error($this->connection));
+            error_log('Could not initiate TLS connection');
+        }
+    }
+
+    private function disconnect()
+    {
+        if ($this->connection && \is_resource($this->connection)) {
+            ldap_unbind($this->connection);
+        }
+
+        $this->connection = null;
+        $this->bound = false;
+    }
+}
