@@ -18,7 +18,7 @@
 /custom/Extension/modules/*/Ext/Vardefs/*orderMapping.php
 /custom/Extension/modules/*/Ext/Language/*orderMapping.php
 /custom/Extension/application/Ext/Language/*orderMapping.php
-/custom/Extension/application/Ext/LogicHooks/orderMapping.php
+custom/Extension/application/Ext/LogicHooks/orderMapping.php
 /custom/Extension/application/Ext/TableDictionary/orderMapping.php
 /custom/Extension/modules/*/Ext/Dependencies/orderMapping.php
 /custom/Extension/modules/*/Ext/Layoutdefs/orderMapping.php
